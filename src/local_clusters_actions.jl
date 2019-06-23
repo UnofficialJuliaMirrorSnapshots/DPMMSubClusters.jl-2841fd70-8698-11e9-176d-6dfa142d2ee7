@@ -19,27 +19,6 @@ function create_first_local_cluster(group::local_group)
     return cluster
 end
 
-function create_initial_cluster(group::local_group,ccount)
-    suff = create_sufficient_statistics(group.model_hyperparams.distribution_hyper_params, [])
-    post = group.model_hyperparams.distribution_hyper_params
-    dist = sample_distribution(post)
-    cp = cluster_parameters(group.model_hyperparams.distribution_hyper_params, dist, suff, post)
-    cpl = deepcopy(cp)
-    cpr = deepcopy(cp)
-    splittable = splittable_cluster_params(cp,cpl,cpr,[0.5,0.5], false,[-Inf,-Inf,-Inf,-Inf,-Inf])
-    cp.suff_statistics.N = size(group.points,2)
-    cpl.suff_statistics.N = sum(group.labels_subcluster .== 1)
-    cpl.suff_statistics.N = sum(group.labels_subcluster .== 2)
-    cluster = local_cluster(splittable, group.model_hyperparams.total_dim,
-        cp.suff_statistics.N,
-        cpl.suff_statistics.N,
-        cpl.suff_statistics.N)
-    @sync for i in workers()
-        @spawnat i split_first_cluster_worker!(group)
-    end
-    return cluster
-end
-
 
 function sample_sub_clusters!(group::local_group)
     for i in workers()
@@ -420,26 +399,6 @@ function remove_empty_clusters!(group::local_group)
     end
     group.local_clusters = new_vec
 end
-
-function merge_global_cluster!(group::local_group,global_cluster::Int64, merged_index::Int64)
-    clusters_count = 0
-    for cluster in group.local_clusters
-        if cluster.globalCluster == global_cluster
-            clusters_count += 1
-        end
-    end
-    for (i,cluster) in enumerate(group.local_clusters)
-        if cluster.globalCluster == global_cluster
-            sublabels = @view group.labels_subcluster[group.labels .== i]
-            sublabels[(x -> x ==3 || x==4).(sublabels)] .-= 2
-        elseif cluster.globalCluster == merged_index
-            sublabels = @view group.labels_subcluster[group.labels .== i]
-            sublabels[(x -> x ==1 || x==2).(sublabels)] .+= 2
-            cluster.globalCluster = global_cluster
-        end
-    end
-end
-
 
 
 function rand_subclusters_labels!(labels::AbstractArray{Int64,1})    #lr_arr = create_array(zeros(length(labels), 2))
