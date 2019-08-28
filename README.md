@@ -1,6 +1,7 @@
 [![Build Status](https://api.travis-ci.com/dinarior/DPMMSubClusters.jl.svg?branch=master)](https://travis-ci.com/dinarior/DPMMSubClusters.jl)
 [![Coverage Status](https://coveralls.io/repos/github/dinarior/DPMMSubClusters.jl/badge.svg?branch=master)](https://coveralls.io/github/dinarior/DPMMSubClusters.jl?branch=master)
 [![codecov](https://codecov.io/gh/dinarior/DPMMSubClusters.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/dinarior/DPMMSubClusters.jl)
+[![](https://img.shields.io/badge/docs-stable-blue.svg)](https://dinarior.github.io/DPMMSubClusters.jl/stable/)
 
 
 # DPMMSubClusters.jl
@@ -8,6 +9,8 @@ This repository is a *Julia* package which holds the code for our paper **Distri
 <p align="center">
 <img src="https://www.cs.bgu.ac.il/~dinari/images/clusters_low_slow.gif" alt="DPGMM SubClusters 2d example">
 </p>
+
+[Docs are now available](https://dinarior.github.io/DPMMSubClusters.jl/stable/)
 
 ## Requirements
 This package was developed and tested on *Julia 1.0.3*, prior versions will not work.
@@ -31,9 +34,10 @@ Use Julia's package manager:
 
 ## Usage
 
-This package is aimed for distributed parallel computing, note that for it to work properly you must use it with atleast one worker process. More workers, distributed across different machines, are encouraged for increased performance.
+This package is aimed for distributed parallel computing, while working with no workers is possible. Adding more workers, distributed across different machines, are encouraged for increased performance.
 
-Check your number of workers using `nworkers()`, if needed, add using `addprocs(n)`, where `n` is the number of workers.
+It is recommended to use `BLAS.set_num_threads(1)`, when working with larger datasets increasing the amount of workers will do the trick, `BLAS` multi threading might disturb the multiprocessing, resulting in slower inference.
+
 For all the workers to recognize the package, you must start with `@everywhere using DPMMSubClusters`. If you require to set the seed (using the `seed` kwarg), add `@everywhere using Random` as well.
 
 The package currently contains priors for handling *Multinomial* or *Gaussian* mixture models.
@@ -43,29 +47,58 @@ While being very verstile in the setting and configuration, there are 2 modes wh
 ### Basic
 In order to run in the basic mode, use the function:
 ```
-labels, clusters, weights = fit(all_data::AbstractArray{Float64,2},local_hyper_params::distribution_hyper_params,α_param::Float64;
-        iters::Int64 = 100, init_clusters::Int64 = 1,seed = nothing, verbose = true, save_model = false)
+labels, clusters, weights = fit(all_data::AbstractArray{Float32,2},local_hyper_params::distribution_hyper_params,α_param::Float32;
+        iters::Int64 = 100, init_clusters::Int64 = 1,seed = nothing, verbose = true, save_model = false, burnout = 20, gt = nothing)
 ```
 
 Or, if opting for the default Gaussian weak prior:
 ```
-labels, clusters, weights = fit(all_data::AbstractArray{Float64,2},α_param::Float64;
-        iters::Int64 = 100, init_clusters::Int64 = 1,seed = nothing, verbose = true, save_model = false)
+labels, clusters, weights = fit(all_data::AbstractArray{Float32,2},α_param::Float32;
+        iters::Int64 = 100, init_clusters::Int64 = 1,seed = nothing, verbose = true, save_model = false,burnout = 20, gt = nothing)
 ```
+\* note that while we dispatch on `Float32`, other numbers will work as well, and will be cast if needed.
 
-`data` should be of the shape `DxN` , `hyper_params` are one of the available hyper parameters.
-While saving the model with this mode is allowed, it is not encouraged. for that there exists the advanced mode.
+#### Args and Kwargs:
+
+* all_data - The data, should be `DxN`.
+* local_hyper_params - The prior you plan to use, can be either Multinomial, or `NIW` (example below on how to create one)
+* α_param - Concetration parameter
+* iters - Number of iterations
+* seed - Random seed, can also be set seperatly. note that if seting seperatly you must set it on all workers.
+* verbose - Printing status on every iteration.
+* save_model - If true, will save a checkpoint every 25 iterations, note that if you opt for saving, I recommend the advanced mode.
+* burnout - How many iteration before allowing clusters to split/merge, reducing this number will result in faster inference, but with higher variance between the different runs.
+* gt - Ground Truth, if supplied will perform `NMI` and `VI` tests on every iteration.
+
+#### Return values:
+
+`fit` will return the following:
+```
+labels, cluster_params, weights, iteration_time_history, nmi_score_history,likelihood_history, cluster_count_history
+```
+Note that `weights` does not sum up to `1`, but to `1` minus the weight of the non-instanisated components.
 
 Examples:
 [2d Gaussian with plotting](https://nbviewer.jupyter.org/github/dinarior/DPMMSubClusters.jl/blob/master/examples/2d_gaussian/gaussian_2d.ipynb).
 [Image Segmentation](https://nbviewer.jupyter.org/github/dinarior/DPMMSubClusters.jl/blob/master/examples/image_seg/dpgmm-superpixels.ipynb).
 
+Reducing the `burnout` will increase the speed and reduce stability, increasing the variance in the results.
+
+When supplied with `gt` kwarg, it will perform `NMI` and `Variation of Information` analysis on each iteration.
+
+The return values for the `fit` methods is:
+
+`labels, clusters, weights, iteration_time, nmi_history, likelihood_history, cluster_count_history`
 
 ### Advanced
 In this mode you are required to supply a params file, example for one is the file `global_params.jl`.
 It includes all the configurable params. Running it is as simple as:
 ```
-dp = dp_parallel(model_params::String; verbose = true, save_model = true)
+dp = dp_parallel(model_params::String; verbose = true, save_model = true, burnout = 5, gt = nothing)
+```
+Will return:
+```
+dp, iteration_time_history , nmi_score_history, liklihood_history, cluster_count_history
 ```
 
 The returned value `dp` is a data structure:
